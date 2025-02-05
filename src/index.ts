@@ -1,166 +1,67 @@
-import type { SessionStorage } from "@remix-run/server-runtime";
-import { AuthenticateOptions, StrategyVerifyCallback } from "remix-auth";
-import { OAuth2Strategy, OAuth2StrategyVerifyParams } from "remix-auth-oauth2";
+import { OAuth2Strategy } from "remix-auth-oauth2";
+import type { Strategy } from "remix-auth/strategy";
+import jwt from "jsonwebtoken";
+
 import type {
-  OktaExtraParams,
   OktaProfile,
   OktaStrategyOptions,
   OktaUserInfo,
-} from "./types";
-export * from "./types";
+} from "./types.js";
+export * from "./types.js";
 
-export class OktaStrategy<User> extends OAuth2Strategy<
-  User,
-  OktaProfile,
-  OktaExtraParams
-> {
-  name = "okta";
-  private userInfoURL: string;
-  private authenticationURL: string;
-  private readonly scope: string;
-  private readonly issuer: string;
-  private readonly debug: boolean;
-  private readonly withCustomLoginForm: boolean;
-  private sessionToken = "";
+export class OktaStrategy<User> extends OAuth2Strategy<User> {
+  public override name = "okta";
+
+  private static userInfoPath = `/oauth2/default/v1/userinfo`;
+
   constructor(
     {
       oktaDomain,
-      issuer = oktaDomain,
-      scope = "openid profile email",
-      clientID,
+      clientId,
       clientSecret,
-      callbackURL,
-      debug = false,
-      ...rest
+      redirectURI,
+      scopes = ["openid", "profile", "email"],
     }: OktaStrategyOptions,
-    verify: StrategyVerifyCallback<
-      User,
-      OAuth2StrategyVerifyParams<OktaProfile, OktaExtraParams>
-    >
+    verify: Strategy.VerifyFunction<User, OAuth2Strategy.VerifyOptions>
   ) {
     super(
       {
-        authorizationURL: `${oktaDomain}/oauth2/default/v1/authorize`,
-        tokenURL: `${oktaDomain}/oauth2/default/v1/token`,
-        clientID,
+        cookie: {
+          name: "okta-oauth2",
+        },
+        clientId,
         clientSecret,
-        callbackURL,
+        redirectURI,
+        authorizationEndpoint: `${oktaDomain}/oauth2/default/v1/authorize`,
+        tokenEndpoint: `${oktaDomain}/oauth2/default/v1/token`,
+        scopes,
       },
       verify
     );
-    this.debug = debug;
-    this.issuer = issuer;
-    this.scope = scope;
-    this.userInfoURL = `${oktaDomain}/oauth2/default/v1/userinfo`;
-    this.authenticationURL = `${oktaDomain}/oauth2/default/api/v1/authn`;
-    this.withCustomLoginForm = !!rest.withCustomLoginForm;
-    this.authenticationURL = rest.withCustomLoginForm
-      ? `${oktaDomain}/api/v1/authn`
-      : "";
   }
 
-  async authenticate(
-    request: Request,
-    sessionStorage: SessionStorage,
-    options: AuthenticateOptions
-  ): Promise<User> {
-    if (this.debug) console.debug("Authenticate with OktaStrategy");
-    if (!this.withCustomLoginForm) {
-      if (this.debug)
-        console.debug(
-          "No custom login form, using remix-auth-oauth2::authenticate()"
-        );
-      return super.authenticate(request, sessionStorage, options);
+  protected override authorizationParams(
+    params: URLSearchParams
+  ): URLSearchParams {
+    // pass through on existing params allows for e.g. state to flow through
+    const extendedParams = new URLSearchParams(params);
+    extendedParams.set("client_id", this.client.clientId);
+    if (this.options.redirectURI) {
+      extendedParams.set("redirect_uri", this.options.redirectURI.toString());
     }
-
-    const session = await sessionStorage.getSession(
-      request.headers.get("Cookie")
-    );
-
-    let user: User | null = session.get(options.sessionKey) ?? null;
-    if (user) {
-      return this.success(user, request.clone(), sessionStorage, options);
+    if (this.options.scopes) {
+      extendedParams.set("scope", this.options.scopes.join(" "));
     }
-
-    const url = new URL(request.url);
-    const callbackUrl = this.getCallbackURLFrom(url);
-    if (url.pathname !== callbackUrl.pathname) {
-      const form = await request.formData();
-      const email = form.get("email");
-      const password = form.get("password");
-
-      if (!email || !password) {
-        throw new Response(
-          JSON.stringify({
-            message: "Bad request, missing email and password.",
-          }),
-          {
-            headers: {
-              "Content-Type": "application/json; charset=utf-8",
-            },
-            status: 400,
-          }
-        );
-      }
-      this.sessionToken = await this.getSessionTokenWith(
-        email.toString(),
-        password.toString()
-      );
-    }
-
-    return super.authenticate(request, sessionStorage, options);
+    extendedParams.set("response_type", "code");
+    return extendedParams;
   }
 
-  private getCallbackURLFrom(url: URL) {
-    if (
-      this.callbackURL.startsWith("http:") ||
-      this.callbackURL.startsWith("https:")
-    ) {
-      return new URL(this.callbackURL);
-    }
-    if (this.callbackURL.startsWith("/")) {
-      return new URL(this.callbackURL, url);
-    }
-    return new URL(`${url.protocol}//${this.callbackURL}`);
-  }
-
-  private async getSessionTokenWith(
-    email: string,
-    password: string
-  ): Promise<string> {
-    let response = await fetch(this.authenticationURL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        username: email,
-        password,
-      }),
-    });
-
-    if (!response.ok) {
-      try {
-        let body = await response.text();
-
-        throw new Error(body);
-      } catch (error) {
-        throw error;
-      }
-    }
-    const data = await response.json();
-    return data.sessionToken;
-  }
-
-  protected authorizationParams() {
-    return new URLSearchParams({
-      scope: this.scope,
-      sessionToken: this.sessionToken,
-    });
-  }
-
-  protected async userProfile(accessToken: string): Promise<OktaProfile> {
-    const response = await fetch(this.userInfoURL, {
+  public static async userProfile(accessToken: string): Promise<OktaProfile> {
+    const { iss } = jwt.decode(accessToken) as { iss: string };
+    const userInfoEndpoint = `${new URL(iss).origin}${
+      OktaStrategy.userInfoPath
+    }`;
+    const response = await fetch(userInfoEndpoint, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -169,13 +70,7 @@ export class OktaStrategy<User> extends OAuth2Strategy<
     return {
       provider: "okta",
       id: profile.sub,
-      name: {
-        familyName: profile.family_name,
-        givenName: profile.given_name,
-        middleName: profile.middle_name,
-      },
-      displayName: profile.name ?? profile.preferred_username,
-      email: profile.email,
+      ...profile,
     };
   }
 }

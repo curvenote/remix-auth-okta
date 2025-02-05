@@ -4,4 +4,5 @@
 
 *.log
 .DS_Store
-/jest.config.ts
+.yalc
+yalc.lock
