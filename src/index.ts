@@ -1,161 +1,50 @@
-import type { SessionStorage } from "@remix-run/server-runtime";
-import { AuthenticateOptions, StrategyVerifyCallback } from "remix-auth";
-import { OAuth2Strategy, OAuth2StrategyVerifyParams } from "remix-auth-oauth2";
+import { OAuth2Strategy } from "remix-auth-oauth2";
+import type { Strategy } from "remix-auth/strategy";
+
 import type {
-  OktaExtraParams,
   OktaProfile,
   OktaStrategyOptions,
   OktaUserInfo,
-} from "./types";
-export * from "./types";
+} from "./types.js";
+export * from "./types.js";
 
-export class OktaStrategy<User> extends OAuth2Strategy<
-  User,
-  OktaProfile,
-  OktaExtraParams
-> {
-  name = "okta";
+export class OktaStrategy<User> extends OAuth2Strategy<User> {
+  public override name = "okta";
+
   private userInfoURL: string;
-  private authenticationURL: string;
-  private readonly scope: string;
-  private readonly issuer: string;
-  private readonly debug: boolean;
-  private readonly withCustomLoginForm: boolean;
+  private readonly scopes: string[];
   private sessionToken = "";
+
   constructor(
     {
       oktaDomain,
-      issuer = oktaDomain,
-      scope = "openid profile email",
-      clientID,
+      clientId,
       clientSecret,
-      callbackURL,
-      debug = false,
-      ...rest
+      redirectURI,
+      scopes = ["openid", "profile", "email"],
     }: OktaStrategyOptions,
-    verify: StrategyVerifyCallback<
-      User,
-      OAuth2StrategyVerifyParams<OktaProfile, OktaExtraParams>
-    >
+    verify: Strategy.VerifyFunction<User, OAuth2Strategy.VerifyOptions>
   ) {
     super(
       {
-        authorizationURL: `${oktaDomain}/oauth2/default/v1/authorize`,
-        tokenURL: `${oktaDomain}/oauth2/default/v1/token`,
-        clientID,
+        clientId,
         clientSecret,
-        callbackURL,
+        redirectURI,
+        authorizationEndpoint: `${oktaDomain}/oauth2/default/v1/authorize`,
+        tokenEndpoint: `${oktaDomain}/oauth2/default/v1/token`,
+        scopes,
       },
       verify
     );
-    this.debug = debug;
-    this.issuer = issuer;
-    this.scope = scope;
+
+    this.scopes = scopes;
     this.userInfoURL = `${oktaDomain}/oauth2/default/v1/userinfo`;
-    this.authenticationURL = `${oktaDomain}/oauth2/default/api/v1/authn`;
-    this.withCustomLoginForm = !!rest.withCustomLoginForm;
-    this.authenticationURL = rest.withCustomLoginForm
-      ? `${oktaDomain}/api/v1/authn`
-      : "";
+    // `${oktaDomain}/oauth2/default/api/v1/authn`;
   }
 
-  async authenticate(
-    request: Request,
-    sessionStorage: SessionStorage,
-    options: AuthenticateOptions
-  ): Promise<User> {
-    if (this.debug) console.debug("Authenticate with OktaStrategy");
-    if (!this.withCustomLoginForm) {
-      if (this.debug)
-        console.debug(
-          "No custom login form, using remix-auth-oauth2::authenticate()"
-        );
-      return super.authenticate(request, sessionStorage, options);
-    }
-
-    const session = await sessionStorage.getSession(
-      request.headers.get("Cookie")
-    );
-
-    let user: User | null = session.get(options.sessionKey) ?? null;
-    if (user) {
-      return this.success(user, request.clone(), sessionStorage, options);
-    }
-
-    const url = new URL(request.url);
-    const callbackUrl = this.getCallbackURLFrom(url);
-    if (url.pathname !== callbackUrl.pathname) {
-      const form = await request.formData();
-      const email = form.get("email");
-      const password = form.get("password");
-
-      if (!email || !password) {
-        throw new Response(
-          JSON.stringify({
-            message: "Bad request, missing email and password.",
-          }),
-          {
-            headers: {
-              "Content-Type": "application/json; charset=utf-8",
-            },
-            status: 400,
-          }
-        );
-      }
-      this.sessionToken = await this.getSessionTokenWith(
-        email.toString(),
-        password.toString()
-      );
-    }
-
-    return super.authenticate(request, sessionStorage, options);
-  }
-
-  private getCallbackURLFrom(url: URL) {
-    if (
-      this.callbackURL.startsWith("http:") ||
-      this.callbackURL.startsWith("https:")
-    ) {
-      return new URL(this.callbackURL);
-    }
-    if (this.callbackURL.startsWith("/")) {
-      return new URL(this.callbackURL, url);
-    }
-    return new URL(`${url.protocol}//${this.callbackURL}`);
-  }
-
-  private async getSessionTokenWith(
-    email: string,
-    password: string
-  ): Promise<string> {
-    let response = await fetch(this.authenticationURL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        username: email,
-        password,
-      }),
-    });
-
-    if (!response.ok) {
-      try {
-        let body = await response.text();
-
-        throw new Error(body);
-      } catch (error) {
-        throw error;
-      }
-    }
-    const data = await response.json();
-    return data.sessionToken;
-  }
-
-  protected authorizationParams() {
+  protected override authorizationParams() {
     return new URLSearchParams({
-      scope: this.scope,
-      sessionToken: this.sessionToken,
+      scope: this.scopes.join(" "),
     });
   }
 

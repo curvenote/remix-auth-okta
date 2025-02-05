@@ -1,4 +1,4 @@
-import type { OAuth2StrategyOptions } from "remix-auth-oauth2";
+import type { OAuth2Strategy } from "remix-auth-oauth2";
 
 export interface OktaProfile {
   provider: string;
@@ -29,11 +29,10 @@ export type OktaUserInfo = {
 };
 
 export type OktaStrategyOptions = Omit<
-  OAuth2StrategyOptions,
-  "authorizationURL" | "tokenURL"
+  OAuth2Strategy.ConstructorOptions,
+  "authorizationEndpoint" | "tokenEndpoint"
 > & {
   oktaDomain: string;
-  scope?: string;
   issuer?: string;
   debug?: boolean;
 } & { withCustomLoginForm?: boolean };
