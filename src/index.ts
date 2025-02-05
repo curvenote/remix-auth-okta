@@ -1,5 +1,6 @@
 import { OAuth2Strategy } from "remix-auth-oauth2";
 import type { Strategy } from "remix-auth/strategy";
+import jwt from "jsonwebtoken";
 
 import type {
   OktaProfile,
@@ -11,9 +12,7 @@ export * from "./types.js";
 export class OktaStrategy<User> extends OAuth2Strategy<User> {
   public override name = "okta";
 
-  private userInfoURL: string;
-  private readonly scopes: string[];
-  private sessionToken = "";
+  private static userInfoPath = `/oauth2/default/v1/userinfo`;
 
   constructor(
     {
@@ -27,6 +26,9 @@ export class OktaStrategy<User> extends OAuth2Strategy<User> {
   ) {
     super(
       {
+        cookie: {
+          name: "okta-oauth2",
+        },
         clientId,
         clientSecret,
         redirectURI,
@@ -36,20 +38,30 @@ export class OktaStrategy<User> extends OAuth2Strategy<User> {
       },
       verify
     );
-
-    this.scopes = scopes;
-    this.userInfoURL = `${oktaDomain}/oauth2/default/v1/userinfo`;
-    // `${oktaDomain}/oauth2/default/api/v1/authn`;
   }
 
-  protected override authorizationParams() {
-    return new URLSearchParams({
-      scope: this.scopes.join(" "),
-    });
+  protected override authorizationParams(
+    params: URLSearchParams
+  ): URLSearchParams {
+    // pass through on existing params allows for e.g. state to flow through
+    const extendedParams = new URLSearchParams(params);
+    extendedParams.set("client_id", this.client.clientId);
+    if (this.options.redirectURI) {
+      extendedParams.set("redirect_uri", this.options.redirectURI.toString());
+    }
+    if (this.options.scopes) {
+      extendedParams.set("scope", this.options.scopes.join(" "));
+    }
+    extendedParams.set("response_type", "code");
+    return extendedParams;
   }
 
-  protected async userProfile(accessToken: string): Promise<OktaProfile> {
-    const response = await fetch(this.userInfoURL, {
+  public static async userProfile(accessToken: string): Promise<OktaProfile> {
+    const { iss } = jwt.decode(accessToken) as { iss: string };
+    const userInfoEndpoint = `${new URL(iss).origin}${
+      OktaStrategy.userInfoPath
+    }`;
+    const response = await fetch(userInfoEndpoint, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -58,13 +70,7 @@ export class OktaStrategy<User> extends OAuth2Strategy<User> {
     return {
       provider: "okta",
       id: profile.sub,
-      name: {
-        familyName: profile.family_name,
-        givenName: profile.given_name,
-        middleName: profile.middle_name,
-      },
-      displayName: profile.name ?? profile.preferred_username,
-      email: profile.email,
+      ...profile,
     };
   }
 }
