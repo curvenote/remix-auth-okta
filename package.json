@@ -1,5 +1,5 @@
 {
-  "name": "remix-auth-okta",
+  "name": "@curvenote/remix-auth-okta",
   "version": "1.2.0",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
@@ -27,6 +27,12 @@
     "build",
     "package.json",
     "README.md"
+  ],
+  "contributors": [
+    {
+      "name": "Johann Rakotoharisoa",
+      "website": "https://github.com/jrakotoharisoa"
+    }
   ],
   "author": {
     "name": "Steve Purves",
