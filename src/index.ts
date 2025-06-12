@@ -21,7 +21,7 @@ export class OktaStrategy<User> extends OAuth2Strategy<User> {
       redirectURI,
       scopes = ["openid", "profile", "email"],
     }: OktaStrategyOptions,
-    verify: Strategy.VerifyFunction<User, OAuth2Strategy.VerifyOptions>
+    verify: Strategy.VerifyFunction<User, OAuth2Strategy.VerifyOptions>,
   ) {
     const endpointBase = oktaServerName
       ? `${oktaDomain}/oauth2/${oktaServerName}/v1`
@@ -39,33 +39,36 @@ export class OktaStrategy<User> extends OAuth2Strategy<User> {
         tokenEndpoint: `${endpointBase}/token`,
         scopes,
       },
-      verify
+      verify,
     );
   }
 
   protected override authorizationParams(
-    params: URLSearchParams
+    parameters: URLSearchParams,
   ): URLSearchParams {
     // pass through on existing params allows for e.g. state to flow through
-    const extendedParams = new URLSearchParams(params);
-    extendedParams.set("client_id", this.client.clientId);
+    const extendedParameters = new URLSearchParams(parameters);
+    extendedParameters.set("client_id", this.client.clientId);
     if (this.options.redirectURI) {
-      extendedParams.set("redirect_uri", this.options.redirectURI.toString());
+      extendedParameters.set(
+        "redirect_uri",
+        this.options.redirectURI.toString(),
+      );
     }
     if (this.options.scopes) {
-      extendedParams.set("scope", this.options.scopes.join(" "));
+      extendedParameters.set("scope", this.options.scopes.join(" "));
     }
-    extendedParams.set("response_type", "code");
-    return extendedParams;
+    extendedParameters.set("response_type", "code");
+    return extendedParameters;
   }
 
   public static async userProfile(
     accessToken: string,
-    opts?: { oktaServerName?: string }
+    options?: { oktaServerName?: string },
   ): Promise<OktaProfile> {
     const claims = jwt.decode(accessToken) as { iss: string };
     const userInfoPath = `/oauth2/${
-      opts?.oktaServerName ? `${opts.oktaServerName}/` : ""
+      options?.oktaServerName ? `${options.oktaServerName}/` : ""
     }v1/userinfo`;
     const userInfoEndpoint = `${new URL(claims.iss).origin}${userInfoPath}`;
     console.log("userInfoEndpoint", userInfoEndpoint);
