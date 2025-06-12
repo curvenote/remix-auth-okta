@@ -12,11 +12,10 @@ export * from "./types.js";
 export class OktaStrategy<User> extends OAuth2Strategy<User> {
   public override name = "okta";
 
-  private static userInfoPath = `/oauth2/default/v1/userinfo`;
-
   constructor(
     {
       oktaDomain,
+      oktaServerName,
       clientId,
       clientSecret,
       redirectURI,
@@ -24,6 +23,10 @@ export class OktaStrategy<User> extends OAuth2Strategy<User> {
     }: OktaStrategyOptions,
     verify: Strategy.VerifyFunction<User, OAuth2Strategy.VerifyOptions>
   ) {
+    const endpointBase = oktaServerName
+      ? `${oktaDomain}/oauth2/${oktaServerName}/v1`
+      : `${oktaDomain}/oauth2/v1`;
+
     super(
       {
         cookie: {
@@ -32,8 +35,8 @@ export class OktaStrategy<User> extends OAuth2Strategy<User> {
         clientId,
         clientSecret,
         redirectURI,
-        authorizationEndpoint: `${oktaDomain}/oauth2/default/v1/authorize`,
-        tokenEndpoint: `${oktaDomain}/oauth2/default/v1/token`,
+        authorizationEndpoint: `${endpointBase}/authorize`,
+        tokenEndpoint: `${endpointBase}/token`,
         scopes,
       },
       verify
@@ -56,11 +59,16 @@ export class OktaStrategy<User> extends OAuth2Strategy<User> {
     return extendedParams;
   }
 
-  public static async userProfile(accessToken: string): Promise<OktaProfile> {
-    const { iss } = jwt.decode(accessToken) as { iss: string };
-    const userInfoEndpoint = `${new URL(iss).origin}${
-      OktaStrategy.userInfoPath
-    }`;
+  public static async userProfile(
+    accessToken: string,
+    opts?: { oktaServerName?: string }
+  ): Promise<OktaProfile> {
+    const claims = jwt.decode(accessToken) as { iss: string };
+    const userInfoPath = `/oauth2/${
+      opts?.oktaServerName ? `${opts.oktaServerName}/` : ""
+    }v1/userinfo`;
+    const userInfoEndpoint = `${new URL(claims.iss).origin}${userInfoPath}`;
+    console.log("userInfoEndpoint", userInfoEndpoint);
     const response = await fetch(userInfoEndpoint, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
