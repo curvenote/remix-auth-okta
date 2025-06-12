@@ -12,18 +12,21 @@ export * from "./types.js";
 export class OktaStrategy<User> extends OAuth2Strategy<User> {
   public override name = "okta";
 
-  private static userInfoPath = `/oauth2/default/v1/userinfo`;
-
   constructor(
     {
       oktaDomain,
+      oktaServerName,
       clientId,
       clientSecret,
       redirectURI,
       scopes = ["openid", "profile", "email"],
     }: OktaStrategyOptions,
-    verify: Strategy.VerifyFunction<User, OAuth2Strategy.VerifyOptions>
+    verify: Strategy.VerifyFunction<User, OAuth2Strategy.VerifyOptions>,
   ) {
+    const endpointBase = oktaServerName
+      ? `${oktaDomain}/oauth2/${oktaServerName}/v1`
+      : `${oktaDomain}/oauth2/v1`;
+
     super(
       {
         cookie: {
@@ -32,35 +35,43 @@ export class OktaStrategy<User> extends OAuth2Strategy<User> {
         clientId,
         clientSecret,
         redirectURI,
-        authorizationEndpoint: `${oktaDomain}/oauth2/default/v1/authorize`,
-        tokenEndpoint: `${oktaDomain}/oauth2/default/v1/token`,
+        authorizationEndpoint: `${endpointBase}/authorize`,
+        tokenEndpoint: `${endpointBase}/token`,
         scopes,
       },
-      verify
+      verify,
     );
   }
 
   protected override authorizationParams(
-    params: URLSearchParams
+    parameters: URLSearchParams,
   ): URLSearchParams {
     // pass through on existing params allows for e.g. state to flow through
-    const extendedParams = new URLSearchParams(params);
-    extendedParams.set("client_id", this.client.clientId);
+    const extendedParameters = new URLSearchParams(parameters);
+    extendedParameters.set("client_id", this.client.clientId);
     if (this.options.redirectURI) {
-      extendedParams.set("redirect_uri", this.options.redirectURI.toString());
+      extendedParameters.set(
+        "redirect_uri",
+        this.options.redirectURI.toString(),
+      );
     }
     if (this.options.scopes) {
-      extendedParams.set("scope", this.options.scopes.join(" "));
+      extendedParameters.set("scope", this.options.scopes.join(" "));
     }
-    extendedParams.set("response_type", "code");
-    return extendedParams;
+    extendedParameters.set("response_type", "code");
+    return extendedParameters;
   }
 
-  public static async userProfile(accessToken: string): Promise<OktaProfile> {
-    const { iss } = jwt.decode(accessToken) as { iss: string };
-    const userInfoEndpoint = `${new URL(iss).origin}${
-      OktaStrategy.userInfoPath
-    }`;
+  public static async userProfile(
+    accessToken: string,
+    options?: { oktaServerName?: string },
+  ): Promise<OktaProfile> {
+    const claims = jwt.decode(accessToken) as { iss: string };
+    const userInfoPath = `/oauth2/${
+      options?.oktaServerName ? `${options.oktaServerName}/` : ""
+    }v1/userinfo`;
+    const userInfoEndpoint = `${new URL(claims.iss).origin}${userInfoPath}`;
+    console.log("userInfoEndpoint", userInfoEndpoint);
     const response = await fetch(userInfoEndpoint, {
       headers: {
         Authorization: `Bearer ${accessToken}`,

@@ -56,6 +56,7 @@ export type OktaStrategyOptions = Omit<
   "authorizationEndpoint" | "tokenEndpoint"
 > & {
   oktaDomain: string;
+  oktaServerName?: string;
   issuer?: string;
   debug?: boolean;
 } & { withCustomLoginForm?: boolean };

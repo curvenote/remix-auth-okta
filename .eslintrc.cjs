@@ -1,9 +1,8 @@
 /* eslint-disable unicorn/prefer-module */
-export default {
+module.exports = {
   extends: [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",
-    "plugin:unicorn/recommended",
     "prettier",
   ],
   plugins: ["@typescript-eslint", "unicorn", "prettier"],

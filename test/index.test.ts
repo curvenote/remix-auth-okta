@@ -71,6 +71,49 @@ describe(OktaStrategy, () => {
         expect(redirectUrl.searchParams.get("scope")).toBe("custom scope");
       }
     });
+
+
+    // Test that not passing in the Okta server name uses the org endpoints
+    test("should use the ORG authorization endpoints when no server name is provided", async () => {
+      const strategy = new OktaStrategy(options, verify);
+      const request = new Request("https://mysite.com/okta/auth");
+      
+      try {
+        await strategy.authenticate(request);
+      } catch (error) { 
+        if (!(error instanceof Response)) throw error;
+        const location = error.headers.get("Location");
+        if (!location) throw new Error("No redirect header");
+        const redirectUrl = new URL(location);
+        expect(redirectUrl.origin + redirectUrl.pathname).toBe(`${options.oktaDomain}/oauth2/v1/authorize`);
+      } 
+    });
+
+
+    // Test whether passing in the Okta server name option appropriately changes the various authorization endpoints
+    test("should use the correct authorization endpoints based on the Okta server name", async () => {
+      const strategy = new OktaStrategy({...options, oktaServerName: 'default'}, verify);
+      const request = new Request("https://mysite.com/okta/auth");
+      
+      try {
+        await strategy.authenticate(request);
+      } catch (error) {
+        if (!(error instanceof Response)) throw error;
+        const location = error.headers.get("Location");
+        if (!location) throw new Error("No redirect header");
+        const redirectUrl = new URL(location);
+        
+        // Verify the authorization endpoint
+        expect(redirectUrl.origin + redirectUrl.pathname).toBe(`${options.oktaDomain}/oauth2/default/v1/authorize`);
+        
+        // Verify the required parameters
+        expect(redirectUrl.searchParams.get("client_id")).toBe(options.clientId);
+        expect(redirectUrl.searchParams.get("redirect_uri")).toBe(options.redirectURI);
+        expect(redirectUrl.searchParams.get("response_type")).toBe("code");
+        expect(redirectUrl.searchParams.get("scope")).toBe((options.scopes ?? ["openid", "profile", "email"]).join(" "));
+      }
+    });
+    
     
     test("should call verify with the access token, refresh token, extra params, user profile and context", async () => {
       const strategy = new OktaStrategy(options, verify);
